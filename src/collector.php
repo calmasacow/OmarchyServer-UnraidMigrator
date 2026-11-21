@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace OmarchyExport;
 
-const VERSION = '2026.11.21.1';
+const VERSION = '2026.11.21.2';
 const LIMIT = 256;
 const JSON_LIMIT = 60 * 1024;
 const REPORT_LIMIT = 256 * 1024;
@@ -20,6 +20,7 @@ interface Probe
     public function security(string $protocol): ?string;
     public function pools(): ?string;
     public function blockDevices(): ?string;
+    public function branchNames(string $root): ?array;
     public function shareLink(string $name): ?string;
     public function directory(string $path): ?array;
 }
@@ -115,6 +116,16 @@ function below(string $path, string $parent): bool
     return str_starts_with($path, $parent . '/');
 }
 
+function userShareRoot(string $path, array $entries): bool
+{
+    if (!matches('~\A/mnt/[A-Za-z0-9][A-Za-z0-9_.-]*\z~D', $path)
+        || in_array($path, ['/mnt/user', '/mnt/user0', '/mnt/disks', '/mnt/remotes', '/mnt/rootshare', '/mnt/addons'], true)) return false;
+    foreach ($entries as $entry) {
+        if (!str_starts_with($entry['source'], '/dev/loop') && ($entry['fs'] === 'zfs' || str_starts_with($entry['source'], '/dev/'))) return true;
+    }
+    return false;
+}
+
 function inventory(Probe $probe, ?string $mountText, array &$notes): array
 {
     $rows = mountRows($mountText);
@@ -135,18 +146,25 @@ function inventory(Probe $probe, ?string $mountText, array &$notes): array
         $rootCandidate = pathOk($path) && matches('~\A/mnt/(?:disks/)?[^/]+\z~D', $path)
             && !in_array($path, ['/mnt/disks', '/mnt/remotes', '/mnt/rootshare', '/mnt/addons'], true);
         $row = $at[0];
+        $parent = dirname($path);
+        $parentRows = $rows[$parent] ?? [];
+        $nestedDataset = !$rootCandidate && pathOk($path) && nameOk(basename($path))
+            && count($parentRows) === 1 && userShareRoot($parent, $parentRows)
+            && isset($mounts[$parent]['dataset']) && $row['fs'] === 'zfs'
+            && $row['parent'] === $parentRows[0]['id']
+            && $row['source'] === $mounts[$parent]['dataset'] . '/' . basename($path);
         $reason = 'Not an unambiguous, supported physical mount root.';
         $health = null;
         $identity = [];
         $ambiguous = false;
         foreach ($rows as $other => $entriesAt) {
             // Other ancestor mounts still make the backing namespace ambiguous.
-            if (below($path, $other) && !($other === '/mnt' && $selfBind)) $ambiguous = true;
+            if (below($path, $other) && !($other === '/mnt' && $selfBind) && !($nestedDataset && $other === $parent)) $ambiguous = true;
             foreach ($entriesAt as $entry) {
                 if ($other !== $path && $entry['fs'] === $row['fs'] && $entry['dev'] === $row['dev']) $ambiguous = true;
             }
         }
-        if ($rootCandidate && count($at) === 1 && !$ambiguous && $row['root'] === '/') {
+        if (($rootCandidate || $nestedDataset) && count($at) === 1 && !$ambiguous && $row['root'] === '/') {
             if ($row['fs'] === 'zfs' && strlen($row['source']) <= 255
                 && matches('~\A[A-Za-z][A-Za-z0-9_.:-]*(?:/[A-Za-z0-9_.: -]+)*\z~D', $row['source'])) {
                 $pools ??= poolRows($probe->pools());
@@ -204,6 +222,21 @@ function capture(Probe $probe): array
     ] : [];
     $mountText = $active ? $probe->mountInfo() : null;
     [$mounts, $exclusions, $rows] = $active ? inventory($probe, $mountText, $notes) : [[], [], null];
+    $branches = [];
+    $branchSnapshots = [];
+    $userMounts = $rows['/mnt/user'] ?? [];
+    $shfs = count($userMounts) === 1 && $userMounts[0]['root'] === '/'
+        && ($userMounts[0]['fs'] === 'fuse.shfs' || ($userMounts[0]['fs'] === 'fuse' && $userMounts[0]['source'] === 'shfs'));
+    if ($shfs) {
+        foreach ($rows as $root => $entries) {
+            if (!userShareRoot($root, $entries)) continue;
+            $entries = count($entries) === 1 ? $probe->branchNames($root) : null;
+            $branchSnapshots[$root] = $entries;
+            foreach ($entries ?? [] as $entry) {
+                if (nameOk($entry)) $branches[strtolower($entry)][] = $root . '/' . $entry;
+            }
+        }
+    }
     $namesAll = array_unique(array_merge($names ?? [], array_map('strval', array_keys($liveRows))));
     if (count($namesAll) > LIMIT) throw new ExportError(SCOPE_ERROR);
     sort($namesAll, SORT_STRING);
@@ -220,26 +253,33 @@ function capture(Probe $probe): array
         $selected = null;
         $dir = null;
         $mode = null;
-        if ($rows !== null && count($rows['/mnt/user'] ?? []) === 1
-            && $rows['/mnt/user'][0]['fs'] === 'fuse.shfs' && $rows['/mnt/user'][0]['root'] === '/'
-            && ($row['exclusive'] ?? null) === 'yes') {
-            $link = $probe->shareLink($name);
-            if ($link !== null && pathOk($link) && basename($link) === $name) {
-                $mount = $mounts[dirname($link)] ?? null;
-                $blocked = false;
-                foreach ($rows as $path => $_) {
-                    if ($path === $link || below($path, $link) || $path === '/mnt/user/' . $name || below($path, '/mnt/user/' . $name)) $blocked = true;
-                }
-                if ($mount !== null && !$blocked) {
-                    $dir = $probe->directory($link);
-                    if ($dir !== null) {
-                        $mode = sprintf('%04o', $dir['mode'] & 07777);
-                        $selected = ['name' => $name, 'mount' => $mount['id'], 'path' => $link,
-                            'legacyPath' => '/mnt/user/' . $name, 'review' => 'manual-review',
-                            'reason' => 'Verify destination read-only access and share permissions before migration.'];
-                    } else $reason = 'Backing share root is not a verified directory.';
-                } else $reason = 'Exclusive link does not resolve directly to an eligible mount, or the share contains another mount.';
+        $observed = $branches[strtolower($name)] ?? [];
+        $legacy = '/mnt/user/' . $name;
+        $link = $shfs && ($row['exclusive'] ?? null) === 'yes' ? $probe->shareLink($name) : null;
+        if ($link !== null && pathOk($link) && basename($link) === $name && !in_array($link, $observed, true)) $observed[] = $link;
+        sort($observed, SORT_STRING);
+        if (count($observed) > 1) {
+            $reason = 'Multiple backing entries observed; no single branch selected.';
+        } elseif ($shfs && ($path = $observed[0] ?? null) !== null) {
+            $mount = $mounts[$path] ?? $mounts[dirname($path)] ?? null;
+            $block = false;
+            foreach ($rows as $target => $_) {
+                if (($target === $path && $target !== ($mount['path'] ?? null)) || below($target, $path)
+                    || $target === $legacy || below($target, $legacy)) $block = true;
             }
+            $trustedLink = $link === $path;
+            $observedSingle = $branchSnapshots !== [] && !in_array(null, $branchSnapshots, true)
+                && basename($path) === $name && userShareRoot(dirname($path), $rows[dirname($path)] ?? [])
+                && $probe->directory($legacy) !== null;
+            if ($mount !== null && !$block && ($trustedLink || $observedSingle)) {
+                $dir = $probe->directory($path);
+                if ($dir !== null) {
+                    $mode = sprintf('%04o', $dir['mode'] & 07777);
+                    $selected = ['name' => $name, 'mount' => $mount['id'], 'path' => $path,
+                        'legacyPath' => $legacy, 'review' => 'manual-review',
+                        'reason' => 'Verify the observed source backing and destination read-only access before migration.'];
+                } else $reason = 'Backing entry is not a verified canonical directory.';
+            } else $reason = 'Backing entry is on an unsupported mount, crosses a mount, or discovery is incomplete.';
         }
         $shares[] = $selected ?? ['name' => $name, 'review' => 'deferred', 'reason' => $reason];
         $security = [];
@@ -256,7 +296,8 @@ function capture(Probe $probe): array
         $shareNotes[] = "- `$name` — " . ($selected === null ? "deferred: $reason" : sprintf(
             'candidate `%s` (legacy `%s`); source UID:GID %d:%d, mode %s.',
             $selected['path'], $selected['legacyPath'], $dir['uid'], $dir['gid'], $mode
-        )) . ($active ? ' Runtime settings (not effective access): ' . implode('; ', $security) . "; useCache $tier; pool fields `$pool1`, `$pool2`. ACLs and rules not collected." : '');
+        )) . ($observed === [] ? '' : ' Observed backing entries: `' . implode('`, `', $observed) . '`.')
+            . ($active ? ' Runtime settings (not effective access): ' . implode('; ', $security) . "; useCache $tier; pool fields `$pool1`, `$pool2`. ACLs and rules not collected." : '');
     }
     if ($omitted) $exclusions[] = ['name' => 'Unrepresentable share names', 'reason' => "$omitted share names could not be represented uniquely and safely in v1."];
     if (!$active || $rows === null) $exclusions[] = ['name' => 'Unverified source storage', 'reason' => $active
@@ -265,7 +306,13 @@ function capture(Probe $probe): array
     if ($active) {
         // Do not issue further active probes if the array stopped during capture.
         $end = field(iniFields($probe->state()), 'mdState', '/\ASTARTED\z/D');
-        if ($end === null || $mountText !== $probe->mountInfo() || $live !== $probe->liveShares()) {
+        if ($end === null) throw new ExportError('Source state changed during capture; no export emitted. Retry once the source is stable.');
+        foreach ($branchSnapshots as $root => $entries) {
+            if ($entries !== null && $entries !== $probe->branchNames($root)) {
+                throw new ExportError('Source state changed during capture; no export emitted. Retry once the source is stable.');
+            }
+        }
+        if ($mountText !== $probe->mountInfo() || $live !== $probe->liveShares()) {
             throw new ExportError('Source state changed during capture; no export emitted. Retry once the source is stable.');
         }
     }

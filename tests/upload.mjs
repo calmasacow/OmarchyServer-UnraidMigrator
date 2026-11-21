@@ -33,11 +33,15 @@ for (const [name, capture] of Object.entries(captures)) {
     const blocked = (await previewUploadedLocalUnraid(manifest, {probe: writable})).plan
     assert.equal(blocked.blocked, true)
     assert.ok(blocked.shares.find(s => s.name === 'Media').issues.includes('backing-mount-is-writable'))
+  } else if (name === 'dataset') {
+    assert.equal(plan.blocked, false)
+    assert.equal(plan.shares.find(s => s.name === 'Models').status, 'manual-review')
+    assert.equal(plan.shares.find(s => s.name === 'Split').status, 'deferred')
   } else {
     assert.equal(name, 'stopped')
     assert.equal(plan.mounts.length, 0)
     assert.ok(plan.shares.length > 0 && plan.shares.every(s => s.status === 'deferred'))
   }
 }
-assert.deepEqual(Object.keys(captures).sort(), ['active', 'stopped'])
-console.log('Actual previewUploadedLocalUnraid accepted both PHP fixtures; writable rehearsal blocked')
+assert.deepEqual(Object.keys(captures).sort(), ['active', 'dataset', 'stopped'])
+console.log('Actual previewUploadedLocalUnraid accepted all three PHP captures; writable rehearsal blocked')

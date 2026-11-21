@@ -54,6 +54,10 @@ ROWS;
             default => null,
         };
     }
+    public array $branches = [];
+    public function branchNames(string $root): ?array {
+        return array_key_exists($root, $this->branches) ? $this->branches[$root] : [];
+    }
     public function directory(string $path): ?array {
         $this->calls[] = "directory:$path";
         return $path === '/mnt/tank/Symlink' ? null : ['mode' => 0040750, 'uid' => 99, 'gid' => 100];
@@ -112,6 +116,24 @@ foreach ([
     check(manifest(capture($other))['mounts'] === [], 'unexpected or stacked /mnt mount remains blocked');
 }
 
+$f = new Fixture();
+$f->names[] = 'Models';
+$f->mounts .= "\n46 32 0:46 / /mnt/tank/Models rw - zfs tank/data/Models rw"
+    . "\n47 32 0:47 / /mnt/tank/Split rw - zfs tank/data/Split rw";
+$f->branches = ['/mnt/tank' => ['Models', 'Split'], '/mnt/degraded' => ['Split']];
+$result = capture($f);
+$mapped = array_column(manifest($result)['shares'], null, 'name');
+check(($mapped['Models']['path'] ?? null) === '/mnt/tank/Models', 'single observed ZFS dataset can be previewed without an exclusive alias');
+check($mapped['Split']['review'] === 'deferred' && !isset($mapped['Split']['path']), 'split share is not selected');
+check(str_contains($result['markdown'], '`/mnt/tank/Split`') && str_contains($result['markdown'], '`/mnt/degraded/Split`'), 'both split branches appear in report');
+check(!isset($mapped['Nested']['path']), 'a deeper overmount still prevents share selection');
+$incomplete = clone $f;
+$incomplete->branches['/mnt/degraded'] = null;
+check(!isset(array_column(manifest(capture($incomplete))['shares'], null, 'name')['Models']['path']), 'unreadable backing root prevents single-branch inference');
+$bind = clone $f;
+$bind->mounts = str_replace('46 32 0:46 / ', '46 32 0:46 /other ', $bind->mounts);
+check(!isset(array_column(manifest(capture($bind))['shares'], null, 'name')['Models']['path']), 'a bind of a dataset subtree is not a dataset mount');
+
 foreach (['STOPPED', 'STARTING', null] as $state) {
     $f = new Fixture();
     $f->mode = $state;
@@ -141,5 +163,5 @@ rejects(fn() => render($m, str_repeat('a', \OmarchyExport\REPORT_LIMIT + 1), '')
 check(\OmarchyExport\command(['/bin/printf', '%s', 'abcd'], 4) === 'abcd', 'command cap inclusive');
 check(\OmarchyExport\command(['/bin/printf', '%s', 'abcd'], 3) === null, 'command output cap enforced');
 
-echo json_encode(['active' => $active, 'stopped' => $stopped], JSON_THROW_ON_ERROR) . "\n";
+echo json_encode(['active' => $active, 'dataset' => $result, 'stopped' => $stopped], JSON_THROW_ON_ERROR) . "\n";
 fwrite(STDERR, "PHP exporter fixtures passed\n");

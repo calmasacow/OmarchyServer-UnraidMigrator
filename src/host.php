@@ -79,6 +79,24 @@ final class HostProbe implements Probe
             '--list', '--json', '--properties-by', 'udev', '--output', 'PATH,MAJ:MIN,FSTYPE,UUID'], 128 * 1024);
     }
 
+    public function branchNames(string $root): ?array
+    {
+        if (!matches('~\A/mnt/[A-Za-z0-9][A-Za-z0-9_.-]*\z~D', $root) || @realpath($root) !== $root) return null;
+        $handle = @opendir($root);
+        if ($handle === false) return null;
+        $entries = [];
+        try {
+            while (($entry = readdir($handle)) !== false) {
+                if (count($entries) >= 4096) return null;
+                $entries[] = $entry;
+            }
+        } finally {
+            closedir($handle);
+        }
+        sort($entries, SORT_STRING);
+        return $entries;
+    }
+
     public function shareLink(string $name): ?string
     {
         if (!nameOk($name)) return null;
