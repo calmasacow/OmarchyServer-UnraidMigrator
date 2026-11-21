@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace OmarchyExport;
 
-const VERSION = '2026.11.21';
+const VERSION = '2026.11.21.1';
 const LIMIT = 256;
 const JSON_LIMIT = 60 * 1024;
 const REPORT_LIMIT = 256 * 1024;
@@ -70,8 +70,9 @@ function mountRows(?string $input): ?array
         $post = explode(' ', $parts[1]);
         if (count($pre) < 6 || count($post) !== 3 || !matches('/\A\d+:\d+\z/', $pre[2])) return null;
         $path = unescapeMount($pre[4]);
-        if ($path !== '/mnt' && !str_starts_with($path, '/mnt/')) continue;
+        if ($path !== '/' && $path !== '/mnt' && !str_starts_with($path, '/mnt/')) continue;
         $rows[$path][] = [
+            'id' => $pre[0], 'parent' => $pre[1],
             'dev' => $pre[2], 'root' => unescapeMount($pre[3]), 'fs' => $post[0],
             'source' => unescapeMount($post[1]), 'ro' => in_array('ro', explode(',', $pre[5]), true),
         ];
@@ -118,6 +119,14 @@ function inventory(Probe $probe, ?string $mountText, array &$notes): array
 {
     $rows = mountRows($mountText);
     if ($rows === null) return [[], [], null];
+    // Unraid can bind /mnt onto itself. Only ignore the ancestor when
+    // mountinfo proves it is the same subtree of the visible root filesystem.
+    $root = count($rows['/'] ?? []) === 1 ? $rows['/'][0] : null;
+    $mnt = count($rows['/mnt'] ?? []) === 1 ? $rows['/mnt'][0] : null;
+    $selfBind = $root !== null && $mnt !== null && $root['root'] === '/' && $mnt['root'] === '/mnt'
+        && $mnt['parent'] === $root['id'] && $mnt['dev'] === $root['dev']
+        && $mnt['fs'] === $root['fs'] && $mnt['source'] === $root['source'];
+    unset($rows['/']);
     $pools = $blocks = null;
     $mounts = $excluded = [];
     foreach ($rows as $path => $at) {
@@ -131,8 +140,8 @@ function inventory(Probe $probe, ?string $mountText, array &$notes): array
         $identity = [];
         $ambiguous = false;
         foreach ($rows as $other => $entriesAt) {
-            // A mount on /mnt changes the expected namespace; reject rather than infer.
-            if (below($path, $other)) $ambiguous = true;
+            // Other ancestor mounts still make the backing namespace ambiguous.
+            if (below($path, $other) && !($other === '/mnt' && $selfBind)) $ambiguous = true;
             foreach ($entriesAt as $entry) {
                 if ($other !== $path && $entry['fs'] === $row['fs'] && $entry['dev'] === $row['dev']) $ambiguous = true;
             }

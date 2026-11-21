@@ -95,6 +95,23 @@ check(str_contains($active['markdown'], 'pool health DEGRADED'), 'degraded pool 
 check(!str_contains(implode('', $active), 'PRIVATE_') && !str_contains(implode('', $active), '<script>'), 'no raw secrets or markup');
 check(manifest(capture(new Fixture())) === $m, 'stable IDs and deterministic manifest');
 
+$f = new Fixture();
+$selfBind = '45 25 0:1 /mnt /mnt rw shared:1 - rootfs rootfs rw';
+$f->mounts = str_replace('30 25 ', "{$selfBind}\n30 25 ", $f->mounts);
+$f->mounts = preg_replace('/^(30|32|33|34|35) 25 /m', '$1 45 ', $f->mounts);
+check(manifest(capture($f)) === $m, 'root filesystem self-bind at /mnt preserves the inventory');
+foreach ([
+    str_replace('0:1', '0:77', $selfBind),
+    str_replace('45 25 ', '45 26 ', $selfBind),
+    str_replace(' /mnt /mnt ', ' /other /mnt ', $selfBind),
+    str_replace('rootfs rootfs', 'tmpfs tmpfs', $selfBind),
+    $selfBind . "\n46 45 0:77 / /mnt rw - tmpfs tmpfs rw",
+] as $overmount) {
+    $other = clone $f;
+    $other->mounts = str_replace($selfBind, $overmount, $f->mounts);
+    check(manifest(capture($other))['mounts'] === [], 'unexpected or stacked /mnt mount remains blocked');
+}
+
 foreach (['STOPPED', 'STARTING', null] as $state) {
     $f = new Fixture();
     $f->mode = $state;
