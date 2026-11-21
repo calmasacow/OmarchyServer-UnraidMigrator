@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace OmarchyExport;
 
 require_once __DIR__ . '/collector.php';
+require_once __DIR__ . '/inventory.php';
 
 function boundedRead(string $path, int $max): ?string
 {

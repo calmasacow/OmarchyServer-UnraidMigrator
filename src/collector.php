@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace OmarchyExport;
 
-const VERSION = '2026.11.21.3';
+const VERSION = '2026.11.21.4';
 const LIMIT = 256;
 const JSON_LIMIT = 60 * 1024;
 const REPORT_LIMIT = 256 * 1024;
@@ -216,7 +216,7 @@ function inventory(Probe $probe, ?string $mountText, array &$notes): array
     return [$mounts, $excluded, $rows];
 }
 
-function capture(Probe $probe): array
+function capture(Probe $probe, ?callable $inventory = null): array
 {
     $state = iniFields($probe->state());
     $array = field($state, 'mdState', '/\A(?:STARTED|STOPPED)\z/D') ?? 'unknown or transitioning';
@@ -314,6 +314,7 @@ function capture(Probe $probe): array
     if (!$active || $rows === null) $exclusions[] = ['name' => 'Unverified source storage', 'reason' => $active
         ? 'Mount table unavailable or invalid.' : 'Array not confirmed started; no storage probes were run.'];
     if ($names === null) $exclusions[] = ['name' => 'Saved share inventory', 'reason' => 'Saved share directory unavailable.'];
+    $inventoryNotes = $active && $inventory !== null ? $inventory() : [];
     if ($active) {
         // Do not issue further active probes if the array stopped during capture.
         $end = field(iniFields($probe->state()), 'mdState', '/\ASTARTED\z/D');
@@ -329,8 +330,8 @@ function capture(Probe $probe): array
     }
     $manifest = ['version' => 1, 'mounts' => array_values($mounts), 'shares' => $shares, 'exclusions' => $exclusions,
         'metadata' => [
-            ['id' => 'Docker inventory', 'kind' => 'docker-inspect', 'deferReason' => 'Workload collection is not implemented; Docker was not queried.'],
-            ['id' => 'VM inventory', 'kind' => 'vm-xml', 'deferReason' => 'Workload collection is not implemented; libvirt was not queried.'],
+            ['id' => 'Docker inventory', 'kind' => 'docker-inspect', 'deferReason' => 'Portable v1 cannot carry container definitions; see the private report if collected.'],
+            ['id' => 'VM inventory', 'kind' => 'vm-xml', 'deferReason' => 'Portable v1 cannot carry VM definitions; see the private report if collected.'],
         ]];
     $summary = sprintf('Array: %s. %d mount candidate(s), %d deferred share(s), %d exclusion(s).',
         $array, count($mounts), count(array_filter($shares, static fn(array $s): bool => $s['review'] === 'deferred')), count($exclusions));
@@ -341,11 +342,11 @@ function capture(Probe $probe): array
         '- Storage: ' . ($rows === null ? 'unavailable; array not started or mount evidence unavailable.' : 'partial; eligible mounted filesystems only. Offline devices, disk serials and parity are not inventoried.'),
         '- Shares: ' . (!$active ? ($names === null ? 'unavailable; saved share directory unreadable.' : 'partial; saved share filenames only.')
             : 'partial; saved names and scoped runtime evidence where available. No recursive scan, ACLs or client/account lists.'),
-        '- Docker, libvirt, network, and automation: unavailable in this pass; no services queried or started.', '',
+        '- Docker, libvirt, and network: ' . ($inventoryNotes === [] ? 'not probed in this capture.' : 'see the inventory sections; report only, not portable import definitions.'), '',
         'Same-path candidates describe the source only. On Omarchy, verify filesystem identity, read-only rehearsal access, target paths and service-user permissions. A deferred share must not be replaced by empty data.', '',
         '## Storage', '',
     ], $notes ?: ['- No mounted storage evidence in scope.'], ['', '## Shares', ''], $shareNotes ?: ['- No share names collected.'],
-        ['', '## Exclusions', ''], array_map(static fn(array $e): string => '- ' . $e['name'] . ': ' . $e['reason'], $exclusions) ?: ['- No additional exclusions recorded.'], ['']));
+        ['', '## Exclusions', ''], array_map(static fn(array $e): string => '- ' . $e['name'] . ': ' . $e['reason'], $exclusions) ?: ['- No additional exclusions recorded.'], [''], $inventoryNotes));
     return render($manifest, $report, $summary);
 }
 

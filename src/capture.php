@@ -33,7 +33,7 @@ if ($_POST !== [] || $_GET !== [] || $_FILES !== []) {
 
 try {
     require_once '/usr/local/libexec/omarchy-migration-export/host.php';
-    $argv = ['/usr/bin/timeout', '-k', '1s', '15s', '/usr/bin/php', '-n', '-d', 'display_errors=0',
+    $argv = ['/usr/bin/timeout', '-k', '1s', '45s', '/usr/bin/php', '-n', '-d', 'display_errors=0',
         '-d', 'memory_limit=64M', '/usr/local/libexec/omarchy-migration-export/export.php', 'bundle'];
     $result = \OmarchyExport\command($argv, 6 * (\OmarchyExport\REPORT_LIMIT + \OmarchyExport\JSON_LIMIT) + 4096, [0, 3]);
     $body = $result === null ? null : json_decode($result, true, 4);

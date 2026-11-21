@@ -16,7 +16,7 @@ if ($argc !== 2 || !in_array($format, ['json', 'markdown', 'bundle'], true)) {
     exit(2);
 }
 try {
-    $out = capture(new HostProbe());
+    $out = capture(new HostProbe(), $format === 'json' ? null : static fn() => inventoryMarkdown(hostInventory()));
     echo $format === 'bundle' ? json_encode($out, JSON_THROW_ON_ERROR) : $out[$format];
 } catch (ExportError $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

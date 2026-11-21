@@ -16,7 +16,7 @@ requireThat($root->getAttribute('version') === \OmarchyExport\VERSION && $root->
 requireThat($doc->doctype === null && $doc->getElementsByTagName('URL')->length === 0);
 $cli = '/usr/local/libexec/omarchy-migration-export';
 $web = '/usr/local/emhttp/plugins/omarchy-migration-export';
-$expected = ["$cli/collector.php", "$cli/host.php", "$cli/export.php", "$web/OmarchyMigrationExport.page", "$web/capture.php"];
+$expected = ["$cli/collector.php", "$cli/inventory.php", "$cli/host.php", "$cli/export.php", "$web/OmarchyMigrationExport.page", "$web/capture.php"];
 $entries = $doc->getElementsByTagName('FILE');
 requireThat($entries->length === count($expected) + 1);
 foreach ($expected as $i => $target) {
@@ -32,4 +32,4 @@ requireThat($remove->getAttribute('Method') === 'remove' && $remove->getAttribut
 $script = trim($remove->getElementsByTagName('INLINE')->item(0)->textContent);
 $lines = array_map(static fn(string $path): string => 'rm -f -- ' . escapeshellarg($path), $expected);
 requireThat($script === implode("\n", ['set -eu', ...$lines, "rmdir -- '$web' '$cli' 2>/dev/null || :"]));
-echo "Local .plg XML, five embedded files, checksums and removal scope verified\n";
+echo "Local .plg XML, six embedded files, checksums and removal scope verified\n";

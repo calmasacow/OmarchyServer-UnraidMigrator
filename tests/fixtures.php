@@ -148,7 +148,7 @@ foreach (['STOPPED', 'STARTING', null] as $state) {
     check($s['mounts'] === [] && count($s['shares']) > 0, 'inactive exports deferred names and no mounts');
     foreach ($s['shares'] as $row) check($row['review'] === 'deferred' && !isset($row['path'], $row['mount']), 'no inactive mapping');
 }
-$f = new Fixture(); $f->mode = 'STOPPED'; $stopped = capture($f);
+$f = new Fixture(); $f->mode = 'STOPPED'; $stopped = capture($f, static fn() => throw new RuntimeException('Stopped capture must not probe inventory'));
 $f = new Fixture(); $f->mounts = null; $f->names = null;
 $unavailable = manifest(capture($f));
 check($unavailable['mounts'] === [] && count($unavailable['exclusions']) === 2, 'unavailable evidence explicit');

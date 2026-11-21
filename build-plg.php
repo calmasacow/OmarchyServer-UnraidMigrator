@@ -9,7 +9,7 @@ $version = \OmarchyExport\VERSION;
 $web = '/usr/local/emhttp/plugins/' . $name;
 $cli = '/usr/local/libexec/' . $name;
 $files = [
-    'collector.php' => "$cli/collector.php", 'host.php' => "$cli/host.php", 'export.php' => "$cli/export.php",
+    'collector.php' => "$cli/collector.php", 'inventory.php' => "$cli/inventory.php", 'host.php' => "$cli/host.php", 'export.php' => "$cli/export.php",
     'OmarchyMigrationExport.page' => "$web/OmarchyMigrationExport.page", 'capture.php' => "$web/capture.php",
 ];
 $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
