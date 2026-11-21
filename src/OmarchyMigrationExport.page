@@ -1,0 +1,60 @@
+Menu="Tools"
+Title="Omarchy Migration Export"
+Icon="download"
+---
+<p>Generate a private migration report and a preview-only JSON manifest. No storage or services are changed. Keep both files private.</p>
+<input type="button" id="omarchy-export-generate" value="Generate">
+<p id="omarchy-export-status" role="status">No capture generated.</p>
+<div id="omarchy-export-downloads"></div>
+<script>
+(() => {
+  const generate = document.getElementById('omarchy-export-generate');
+  const status = document.getElementById('omarchy-export-status');
+  const downloads = document.getElementById('omarchy-export-downloads');
+  let urls = [];
+  function clear() {
+    for (const url of urls) URL.revokeObjectURL(url);
+    urls = [];
+    downloads.replaceChildren();
+  }
+  addEventListener('pagehide', clear);
+  generate.addEventListener('click', async () => {
+    clear();
+    generate.disabled = true;
+    status.textContent = 'Collecting bounded, read-only evidence…';
+    try {
+      if (typeof csrf_token !== 'string' || !csrf_token) throw new Error();
+      const response = await fetch('/plugins/omarchy-migration-export/capture.php', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        body: new URLSearchParams({csrf_token}),
+      });
+      if (!response.headers.get('content-type')?.startsWith('application/json')) throw new Error();
+      const value = await response.json();
+      if (!response.ok) {
+        status.textContent = typeof value.error === 'string' ? value.error : 'No export generated.';
+        return;
+      }
+      if (typeof value.summary !== 'string' || typeof value.json !== 'string' || typeof value.markdown !== 'string') throw new Error();
+      status.textContent = value.summary + ' Review the report before uploading the manifest.';
+      for (const [filename, data, type] of [
+        ['unraid-migration-report.md', value.markdown, 'text/markdown'],
+        ['unraid-migration-manifest.json', value.json, 'application/json'],
+      ]) {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([data], {type}));
+        urls.push(link.href);
+        link.download = filename;
+        link.textContent = `Download ${filename}`;
+        const row = document.createElement('p');
+        row.append(link);
+        downloads.append(row);
+      }
+    } catch {
+      clear();
+      status.textContent = 'No export generated. Check your Unraid admin session and reload Tools before retrying.';
+    } finally {
+      generate.disabled = false;
+    }
+  });
+})();
+</script>
