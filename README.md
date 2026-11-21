@@ -6,7 +6,7 @@ First pass targeting Unraid **7.3.4**. Produces `unraid-migration-report.md` for
 
 This is a pre-release. The collector has been smoke-tested on Unraid 7.3.4 with the array stopped and started; the corrected build still needs a WebGUI pilot. The plugin itself does not start or stop the array. Only install on a system where you are authorised to test it.
 
-1. If replacing the previous pilot, first remove it via **Plugins → Installed Plugins**. Then open **Plugins → Install Plugin**, leave **Force Install** unchecked, and paste the [versioned `.plg` URL](https://github.com/calmasacow/OmarchyServer-UnraidMigrator/releases/download/v2026.11.21.2/omarchy-migration-export.plg).
+1. If replacing the previous pilot, first remove it via **Plugins → Installed Plugins**. Then open **Plugins → Install Plugin**, leave **Force Install** unchecked, and paste the [versioned `.plg` URL](https://github.com/calmasacow/OmarchyServer-UnraidMigrator/releases/download/v2026.11.21.3/omarchy-migration-export.plg).
 2. Open **Tools → Omarchy Migration Export**, click **Generate**, and download both files. A running array allows eligible live storage mappings; a stopped array gives a partial configuration-only report. Neither collects workloads in this version.
 3. To remove the pilot, use **Plugins → Installed Plugins → Remove**.
 

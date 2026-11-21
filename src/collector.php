@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace OmarchyExport;
 
-const VERSION = '2026.11.21.2';
+const VERSION = '2026.11.21.3';
 const LIMIT = 256;
 const JSON_LIMIT = 60 * 1024;
 const REPORT_LIMIT = 256 * 1024;
@@ -46,7 +46,18 @@ function iniFields(?string $text, bool $sections = false): array
 {
     if ($text === null) return [];
     $data = @parse_ini_string($text, $sections, INI_SCANNER_RAW);
-    return is_array($data) ? $data : [];
+    if (!is_array($data)) return [];
+    if (!$sections) return $data;
+    $out = [];
+    foreach ($data as $key => $value) {
+        if (!is_array($value)) continue;
+        $key = (string) $key;
+        // PHP's raw INI parser retains the quotes in emhttp ["Share"] headers.
+        if (strlen($key) > 1 && $key[0] === '"' && str_ends_with($key, '"')) $key = substr($key, 1, -1);
+        if (array_key_exists($key, $out)) return [];
+        $out[$key] = $value;
+    }
+    return $out;
 }
 
 function field(array $row, string $key, string $pattern): ?string

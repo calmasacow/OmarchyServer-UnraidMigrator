@@ -33,14 +33,14 @@ ROWS;
     public function mountInfo(): ?string { $this->calls[] = 'mountinfo'; return $this->mounts === null ? null : $this->mounts . "\n"; }
     public function liveShares(): ?string {
         $this->calls[] = 'shares';
-        return "[Media]\nexclusive=\"yes\"\nuseCache=\"only\"\ncachePool=\"tank\"\ncomment=\"PRIVATE_COMMENT\"\n"
+        return "[\"Media\"]\nexclusive=\"yes\"\nuseCache=\"only\"\ncachePool=\"tank\"\ncomment=\"PRIVATE_COMMENT\"\n"
             . "[Split]\nexclusive=\"no\"\n[Offline]\nexclusive=\"yes\"\n[Unsupported]\nexclusive=\"yes\"\n"
             . "[Nested]\nexclusive=\"yes\"\n[Symlink]\nexclusive=\"yes\"\n[LiveOnly]\nexclusive=\"no\"\n";
     }
     public function security(string $protocol): ?string {
         $this->calls[] = $protocol;
-        return $protocol === 'smb' ? "[Media]\nexport=\"eh\"\nsecurity=\"private\"\nreadList=\"PRIVATE_SMB\"\n"
-            : "[Media]\nexport=\"e\"\nsecurity=\"secure\"\nrule=\"PRIVATE_NFS\"\n";
+        return $protocol === 'smb' ? "[\"Media\"]\nexport=\"eh\"\nsecurity=\"private\"\nreadList=\"PRIVATE_SMB\"\n"
+            : "[\"Media\"]\nexport=\"e\"\nsecurity=\"secure\"\nrule=\"PRIVATE_NFS\"\n";
     }
     public function pools(): ?string { $this->calls[] = 'pools'; return $this->poolsData; }
     public function blockDevices(): ?string { $this->calls[] = 'blocks'; return $this->blockData; }
@@ -77,6 +77,11 @@ function rejects(callable $fn, string $message): void
     throw new RuntimeException('Expected failure: ' . $message);
 }
 function manifest(array $capture): array { return json_decode($capture['json'], true, 8, JSON_THROW_ON_ERROR); }
+
+$quoted = \OmarchyExport\iniFields("[\"Media Share\"]\nexclusive=\"yes\"\n[Plain]\nexport=\"e\"\n", true);
+check(($quoted['Media Share']['exclusive'] ?? null) === 'yes', 'quoted emhttp section name is decoded');
+check(($quoted['Plain']['export'] ?? null) === 'e', 'plain section names still work');
+check(\OmarchyExport\iniFields("[Media]\nexport=e\n[\"Media\"]\nexport=-\n", true) === [], 'duplicate decoded sections fail closed');
 
 $f = new Fixture();
 $active = capture($f);
